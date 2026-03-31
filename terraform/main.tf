@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
   }
 }
 
@@ -74,11 +78,18 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 # ─── Lambda function ──────────────────────────────────────────────────
 
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/.."
-  output_path = "${path.module}/function.zip"
-  excludes    = ["terraform", ".git", "terraform.tfstate", "terraform.tfstate.backup"]
+resource "terraform_data" "lambda_zip" {
+  triggers_replace = [timestamp()]
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/.."
+    command     = "zip -r terraform/function.zip index.js lib/ tools/ node_modules/ -x 'terraform/*' '.git/*'"
+  }
+}
+
+data "local_file" "lambda_zip" {
+  filename   = "${path.module}/function.zip"
+  depends_on = [terraform_data.lambda_zip]
 }
 
 resource "aws_lambda_function" "mcp" {
@@ -88,8 +99,8 @@ resource "aws_lambda_function" "mcp" {
   runtime          = var.lambda_runtime
   timeout          = var.lambda_timeout
   memory_size      = var.lambda_memory
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  filename         = "${path.module}/function.zip"
+  source_code_hash = data.local_file.lambda_zip.content_base64sha256
 
   environment {
     variables = {
