@@ -1,0 +1,18 @@
+{
+  "name": "shopify-mcp-lambda",
+  "version": "1.0.0",
+  "description": "Shopify MCP Server on AWS Lambda with client credentials auth and DynamoDB token caching",
+  "main": "index.js",
+  "scripts": {
+    "zip": "zip -r function.zip index.js lib/ node_modules/"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "graphql": "^16.6.0",
+    "graphql-request": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
