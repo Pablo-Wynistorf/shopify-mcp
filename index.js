@@ -1,118 +1,174 @@
 const { getAccessToken } = require("./lib/shopifyAuth");
 const { createShopifyClient } = require("./lib/shopifyClient");
 const { tools } = require("./tools/registry");
+const crypto = require("crypto");
 
 /**
- * AWS Lambda handler for the Shopify MCP server.
+ * AWS Lambda handler — MCP Streamable-HTTP transport.
  *
- * Authentication: Two layers
- * 1. API Gateway validates the x-api-key header (403 if missing/invalid)
- * 2. Shopify credentials in the body are used to fetch/cache access tokens
- *
- * Expects:
- * - Header: x-api-key: <your-api-gateway-key>
- * - JSON body:
- * {
- *   "jsonrpc": "2.0",
- *   "id": 1,
- *   "method": "tools/call" | "tools/list",
- *   "params": { "name": "get-products", "arguments": { ... } },
- *   "credentials": {
- *     "clientId": "...",
- *     "clientSecret": "...",
- *     "shopDomain": "my-store.myshopify.com"
- *   }
- * }
+ * The streamable-http protocol sends POST requests with
+ * Accept: text/event-stream. The server wraps JSON-RPC
+ * responses in SSE format (data: ... lines).
  */
 exports.handler = async (event) => {
+  const httpMethod = event.httpMethod || event.requestContext?.http?.method;
+  const headers = normalizeHeaders(event.headers || {});
+  const accept = headers["accept"] || "";
+  const wantSSE = accept.includes("text/event-stream");
+
+  // GET — client wants to open SSE stream (not supported)
+  if (httpMethod === "GET") {
+    return wantSSE
+      ? respondSSE(200, [], null, true)
+      : respond(405, { error: "GET not supported" });
+  }
+
+  // DELETE — session close (no-op)
+  if (httpMethod === "DELETE") return respond(200, {});
+
+  // OPTIONS — CORS preflight
+  if (httpMethod === "OPTIONS") return respond(200, {});
+
+  if (httpMethod !== "POST") {
+    return respond(405, { error: `Method ${httpMethod} not allowed` });
+  }
+
+  // ── POST: JSON-RPC ────────────────────────────────────────────────
   try {
     const body =
       typeof event.body === "string" ? JSON.parse(event.body) : event.body || event;
 
     const { id, method, params, credentials } = body;
+    const sessionId = headers["mcp-session-id"] || crypto.randomUUID();
 
-    // ── Validate credentials ────────────────────────────────────────
-    if (!credentials || !credentials.clientId || !credentials.clientSecret || !credentials.shopDomain) {
-      return respond(400, {
+    // ── initialize ──────────────────────────────────────────────────
+    if (method === "initialize") {
+      const result = {
         jsonrpc: "2.0",
-        id: id || null,
-        error: {
-          code: -32600,
-          message: "Missing credentials. Provide clientId, clientSecret, and shopDomain.",
+        id,
+        result: {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: "shopify-mcp", version: "1.0.0" },
         },
-      });
+      };
+      return wantSSE
+        ? respondSSE(200, [result], sessionId)
+        : respond(200, result, sessionId);
     }
 
-    const { clientId, clientSecret, shopDomain } = credentials;
-
-    // ── Validate shopDomain format ──────────────────────────────────
-    if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(shopDomain)) {
-      return respond(400, {
-        jsonrpc: "2.0",
-        id: id || null,
-        error: { code: -32600, message: "Invalid shopDomain. Must be a valid *.myshopify.com domain." },
-      });
+    // ── notifications (no id = no response expected) ────────────────
+    if (id === undefined || id === null) {
+      return respond(202, null, sessionId);
     }
 
-    // ── Route by method ─────────────────────────────────────────────
+    // ── tools/list ──────────────────────────────────────────────────
     if (method === "tools/list") {
       const toolList = Object.entries(tools).map(([name, t]) => ({
         name,
         description: t.description,
         inputSchema: t.inputSchema,
       }));
-      return respond(200, { jsonrpc: "2.0", id, result: { tools: toolList } });
+      const result = { jsonrpc: "2.0", id, result: { tools: toolList } };
+      return wantSSE
+        ? respondSSE(200, [result], sessionId)
+        : respond(200, result, sessionId);
     }
 
+    // ── tools/call ──────────────────────────────────────────────────
     if (method === "tools/call") {
+      if (!credentials?.clientId || !credentials?.clientSecret || !credentials?.shopDomain) {
+        const err = {
+          jsonrpc: "2.0", id,
+          error: { code: -32600, message: "Missing credentials (clientId, clientSecret, shopDomain)." },
+        };
+        return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
+      }
+
+      const { clientId, clientSecret, shopDomain } = credentials;
+
+      if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(shopDomain)) {
+        const err = {
+          jsonrpc: "2.0", id,
+          error: { code: -32600, message: "Invalid shopDomain format." },
+        };
+        return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
+      }
+
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
 
       if (!toolName || !tools[toolName]) {
-        return respond(404, {
-          jsonrpc: "2.0",
-          id,
+        const err = {
+          jsonrpc: "2.0", id,
           error: { code: -32601, message: `Unknown tool: ${toolName}` },
-        });
+        };
+        return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
       }
 
-      // Get (or fetch + cache) the Shopify access token
       const accessToken = await getAccessToken(clientId, clientSecret, shopDomain);
       const client = createShopifyClient(shopDomain, accessToken);
+      const toolResult = await tools[toolName].execute(client, toolArgs);
 
-      const result = await tools[toolName].execute(client, toolArgs);
-
-      return respond(200, {
-        jsonrpc: "2.0",
-        id,
-        result: { content: [{ type: "text", text: JSON.stringify(result) }] },
-      });
+      const result = {
+        jsonrpc: "2.0", id,
+        result: { content: [{ type: "text", text: JSON.stringify(toolResult) }] },
+      };
+      return wantSSE
+        ? respondSSE(200, [result], sessionId)
+        : respond(200, result, sessionId);
     }
 
     // ── Unknown method ──────────────────────────────────────────────
-    return respond(400, {
-      jsonrpc: "2.0",
-      id: id || null,
+    const err = {
+      jsonrpc: "2.0", id: id || null,
       error: { code: -32601, message: `Unsupported method: ${method}` },
-    });
+    };
+    return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
+
   } catch (err) {
     console.error("Lambda error:", err);
-    return respond(500, {
-      jsonrpc: "2.0",
-      id: null,
+    const errResp = {
+      jsonrpc: "2.0", id: null,
       error: { code: -32603, message: err.message || "Internal error" },
-    });
+    };
+    return wantSSE ? respondSSE(500, [errResp]) : respond(500, errResp);
   }
 };
 
-function respond(statusCode, body) {
-  return {
-    statusCode,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Content-Type,x-api-key",
-    },
-    body: JSON.stringify(body),
-  };
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type,x-api-key,mcp-session-id,Accept",
+  "Access-Control-Allow-Methods": "POST,GET,DELETE,OPTIONS",
+  "Access-Control-Expose-Headers": "mcp-session-id",
+};
+
+function normalizeHeaders(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers)) {
+    out[k.toLowerCase()] = v;
+  }
+  return out;
+}
+
+/** Plain JSON response */
+function respond(statusCode, body, sessionId) {
+  const headers = { ...CORS_HEADERS, "Content-Type": "application/json" };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
+  return { statusCode, headers, body: body ? JSON.stringify(body) : "" };
+}
+
+/** SSE-formatted response — wraps JSON-RPC messages as SSE events */
+function respondSSE(statusCode, messages, sessionId, emptyStream) {
+  const headers = { ...CORS_HEADERS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
+
+  let body = "";
+  if (!emptyStream && messages) {
+    for (const msg of messages) {
+      body += `event: message\ndata: ${JSON.stringify(msg)}\n\n`;
+    }
+  }
+
+  return { statusCode, headers, body };
 }
