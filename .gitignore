@@ -3,3 +3,4 @@ terraform/.terraform/
 terraform/*.tfstate*
 terraform/function.zip
 terraform/.terraform.lock.hcl
+.kiro/settings/mcp.json

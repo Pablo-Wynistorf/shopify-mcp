@@ -78,8 +78,19 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 # ─── Lambda function ──────────────────────────────────────────────────
 
+resource "terraform_data" "lambda_build" {
+  triggers_replace = [timestamp()]
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/.."
+    command     = "npm ci --omit=dev"
+  }
+}
+
 resource "terraform_data" "lambda_zip" {
   triggers_replace = [timestamp()]
+
+  depends_on = [terraform_data.lambda_build]
 
   provisioner "local-exec" {
     working_dir = "${path.module}/.."
