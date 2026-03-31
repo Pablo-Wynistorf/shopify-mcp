@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "shopify-mcp": {
+      "type": "streamable-http",
+      "url": "https://shopify-mcp.onedns.ch/mcp",
+      "headers": {
+        "x-api-key": "TC2zS0hj9H2aL7JPujpE59FBSBa6fqBz2lQvbItu"
+      }
+    }
+  }
+}
