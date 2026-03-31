@@ -38,8 +38,15 @@ exports.handler = async (event) => {
     const body =
       typeof event.body === "string" ? JSON.parse(event.body) : event.body || event;
 
-    const { id, method, params, credentials } = body;
+    const { id, method, params } = body;
     const sessionId = headers["mcp-session-id"] || crypto.randomUUID();
+
+    // Credentials from headers
+    const credentials = {
+      clientId: headers["x-shopify-client-id"],
+      clientSecret: headers["x-shopify-client-secret"],
+      shopDomain: headers["x-shopify-shop-domain"],
+    };
 
     // ── initialize ──────────────────────────────────────────────────
     if (method === "initialize") {
@@ -138,7 +145,7 @@ exports.handler = async (event) => {
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type,x-api-key,mcp-session-id,Accept",
+  "Access-Control-Allow-Headers": "Content-Type,x-api-key,mcp-session-id,Accept,x-shopify-client-id,x-shopify-client-secret,x-shopify-shop-domain",
   "Access-Control-Allow-Methods": "POST,GET,DELETE,OPTIONS",
   "Access-Control-Expose-Headers": "mcp-session-id",
 };

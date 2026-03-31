@@ -5,14 +5,10 @@
       "url": "https://your-api-id.execute-api.eu-central-1.amazonaws.com/mcp/mcp",
       "headers": {
         "x-api-key": "your-api-gateway-key",
+        "x-shopify-client-id": "your-shopify-client-id",
+        "x-shopify-client-secret": "your-shopify-client-secret",
+        "x-shopify-shop-domain": "your-store.myshopify.com",
         "Content-Type": "application/json"
-      },
-      "body": {
-        "credentials": {
-          "clientId": "your-shopify-client-id",
-          "clientSecret": "your-shopify-client-secret",
-          "shopDomain": "your-store.myshopify.com"
-        }
       }
     }
   }

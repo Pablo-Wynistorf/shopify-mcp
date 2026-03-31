@@ -17,7 +17,15 @@ A serverless [Model Context Protocol](https://modelcontextprotocol.io/) server f
 Every request must include an `x-api-key` header. API Gateway validates this before the request reaches Lambda. Requests without a valid key get a `403 Forbidden` from the gateway itself.
 
 ### Layer 2: Shopify Client Credentials
-The JSON body must include `credentials` with your Shopify `clientId`, `clientSecret`, and `shopDomain`. These are used to obtain a Shopify access token via the `client_credentials` OAuth flow. Tokens are cached in DynamoDB with TTL (5-minute safety margin before expiry). Credentials are SHA-256 hashed for DynamoDB key lookups — raw secrets are never stored.
+Every request must include the following headers with your Shopify credentials:
+
+| Header | Description |
+|--------|-------------|
+| `x-shopify-client-id` | Your Shopify app client ID |
+| `x-shopify-client-secret` | Your Shopify app client secret |
+| `x-shopify-shop-domain` | Your store domain (e.g. `your-store.myshopify.com`) |
+
+These are used to obtain a Shopify access token via the `client_credentials` OAuth flow. Tokens are cached in DynamoDB with TTL (5-minute safety margin before expiry). Credentials are SHA-256 hashed for DynamoDB key lookups — raw secrets are never stored.
 
 ## Prerequisites
 
@@ -68,14 +76,10 @@ Copy `mcp.json.example` and fill in your values:
       "url": "https://your-api-id.execute-api.eu-central-1.amazonaws.com/mcp/mcp",
       "headers": {
         "x-api-key": "your-api-gateway-key",
+        "x-shopify-client-id": "your-shopify-client-id",
+        "x-shopify-client-secret": "your-shopify-client-secret",
+        "x-shopify-shop-domain": "your-store.myshopify.com",
         "Content-Type": "application/json"
-      },
-      "body": {
-        "credentials": {
-          "clientId": "your-shopify-client-id",
-          "clientSecret": "your-shopify-client-secret",
-          "shopDomain": "your-store.myshopify.com"
-        }
       }
     }
   }
@@ -91,21 +95,22 @@ If using a custom domain, replace the URL with `https://your-custom-domain.com/m
 curl -X POST https://<api-id>.execute-api.<region>.amazonaws.com/mcp/mcp \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_API_KEY" \
+  -H "x-shopify-client-id: YOUR_CLIENT_ID" \
+  -H "x-shopify-client-secret: YOUR_CLIENT_SECRET" \
+  -H "x-shopify-shop-domain: your-store.myshopify.com" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
-    "method": "tools/list",
-    "credentials": {
-      "clientId": "...",
-      "clientSecret": "...",
-      "shopDomain": "your-store.myshopify.com"
-    }
+    "method": "tools/list"
   }'
 
 # Call a tool
 curl -X POST https://<api-id>.execute-api.<region>.amazonaws.com/mcp/mcp \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_API_KEY" \
+  -H "x-shopify-client-id: YOUR_CLIENT_ID" \
+  -H "x-shopify-client-secret: YOUR_CLIENT_SECRET" \
+  -H "x-shopify-shop-domain: your-store.myshopify.com" \
   -d '{
     "jsonrpc": "2.0",
     "id": 2,
@@ -113,11 +118,6 @@ curl -X POST https://<api-id>.execute-api.<region>.amazonaws.com/mcp/mcp \
     "params": {
       "name": "get-products",
       "arguments": { "limit": 5 }
-    },
-    "credentials": {
-      "clientId": "...",
-      "clientSecret": "...",
-      "shopDomain": "your-store.myshopify.com"
     }
   }'
 ```
