@@ -12,7 +12,7 @@ variable "project_name" {
 
 variable "lambda_runtime" {
   type    = string
-  default = "nodejs24.x"
+  default = "nodejs22.x"
 }
 
 variable "lambda_timeout" {
