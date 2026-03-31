@@ -234,4 +234,52 @@ Tools are auto-loaded from the `tools/` directory at startup.
 ```
 ├── index.js                  # Lambda handler — MCP JSON-RPC router
 ├── lib/
-│   ├─
+│   ├── crypto.js             # SHA-256 credential hashing
+│   ├── helpers.js            # GraphQL response helpers
+│   ├── shopifyAuth.js        # Client credentials OAuth flow + caching
+│   ├── shopifyClient.js      # GraphQL client factory (API version 2026-01)
+│   └── tokenStore.js         # DynamoDB get/put for cached tokens
+├── tools/
+│   ├── registry.js           # Auto-loads all tool modules
+│   └── *.js                  # Individual tool implementations
+├── terraform/
+│   ├── main.tf               # Lambda, API Gateway, DynamoDB, IAM, custom domain
+│   ├── variables.tf          # Configurable inputs (region, domain, memory, etc.)
+│   └── outputs.tf            # Endpoint URLs, API key, resource names
+├── mcp.json.example          # MCP client config template
+└── package.json
+```
+
+## Security
+
+- API key validated at the gateway level (never reaches Lambda without it)
+- Shopify credentials are SHA-256 hashed for DynamoDB key lookups — raw secrets never stored
+- DynamoDB encrypted at rest by default (AWS-owned keys)
+- `shopDomain` validated against `*.myshopify.com` pattern
+- Rate limiting and daily quotas via API Gateway usage plan
+- Least-privilege IAM (Lambda only has `GetItem`/`PutItem` on the tokens table)
+- Token cache includes 5-minute safety margin before expiry
+
+## Terraform Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_region` | `eu-central-1` | AWS region to deploy into |
+| `project_name` | `shopify-mcp` | Prefix for all resource names |
+| `lambda_runtime` | `nodejs20.x` | Lambda runtime |
+| `lambda_timeout` | `30` | Lambda timeout in seconds |
+| `lambda_memory` | `256` | Lambda memory in MB |
+| `custom_domain` | `""` | Optional custom domain (e.g. `mcp.example.com`) |
+| `certificate_arn` | `""` | ACM certificate ARN (required if `custom_domain` is set) |
+
+## Terraform Outputs
+
+| Output | Description |
+|--------|-------------|
+| `api_endpoint` | Default API Gateway endpoint URL |
+| `custom_domain_endpoint` | Custom domain endpoint (if configured) |
+| `custom_domain_target` | CNAME target for DNS record (if configured) |
+| `api_key_id` | API key ID |
+| `api_key_value` | API key value (sensitive — use `terraform output api_key_value` to view) |
+| `lambda_function_name` | Lambda function name |
+| `dynamodb_table_name` | DynamoDB table name |
