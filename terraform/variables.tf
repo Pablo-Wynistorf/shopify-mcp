@@ -12,7 +12,7 @@ variable "project_name" {
 
 variable "lambda_runtime" {
   type    = string
-  default = "nodejs20.x"
+  default = "nodejs24.x"
 }
 
 variable "lambda_timeout" {
@@ -28,11 +28,11 @@ variable "lambda_memory" {
 variable "custom_domain" {
   description = "Optional custom domain name for the API (e.g. mcp.example.com). Leave empty to skip."
   type        = string
-  default     = "shopify-mcp.onedns.ch"
+  default     = ""
 }
 
 variable "certificate_arn" {
   description = "ACM certificate ARN for the custom domain. Required if custom_domain is set."
   type        = string
-  default     = "arn:aws:acm:eu-central-1:240543260101:certificate/b0e16084-accb-49e8-900c-929afd351d4d"
+  default     = ""
 }
