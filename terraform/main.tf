@@ -155,6 +155,42 @@ resource "aws_api_gateway_integration" "lambda" {
   uri                     = aws_lambda_function.mcp.invoke_arn
 }
 
+# GET /mcp — SSE stream attempt (Lambda returns 405)
+resource "aws_api_gateway_method" "get" {
+  rest_api_id      = aws_api_gateway_rest_api.mcp.id
+  resource_id      = aws_api_gateway_resource.mcp.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "get_lambda" {
+  rest_api_id             = aws_api_gateway_rest_api.mcp.id
+  resource_id             = aws_api_gateway_resource.mcp.id
+  http_method             = aws_api_gateway_method.get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.mcp.invoke_arn
+}
+
+# DELETE /mcp — session termination
+resource "aws_api_gateway_method" "delete" {
+  rest_api_id      = aws_api_gateway_rest_api.mcp.id
+  resource_id      = aws_api_gateway_resource.mcp.id
+  http_method      = "DELETE"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "delete_lambda" {
+  rest_api_id             = aws_api_gateway_rest_api.mcp.id
+  resource_id             = aws_api_gateway_resource.mcp.id
+  http_method             = aws_api_gateway_method.delete.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.mcp.invoke_arn
+}
+
 # OPTIONS /mcp — CORS preflight (no API key required)
 resource "aws_api_gateway_method" "options" {
   rest_api_id      = aws_api_gateway_rest_api.mcp.id
@@ -195,8 +231,8 @@ resource "aws_api_gateway_integration_response" "options" {
   status_code = aws_api_gateway_method_response.options_200.status_code
 
   response_parameters = {
-    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,x-api-key'"
-    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,x-api-key,mcp-session-id,Accept'"
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,GET,DELETE,OPTIONS'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 }
@@ -207,6 +243,8 @@ resource "aws_api_gateway_deployment" "mcp" {
 
   depends_on = [
     aws_api_gateway_integration.lambda,
+    aws_api_gateway_integration.get_lambda,
+    aws_api_gateway_integration.delete_lambda,
     aws_api_gateway_integration.options,
   ]
 
@@ -215,7 +253,11 @@ resource "aws_api_gateway_deployment" "mcp" {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.mcp.id,
       aws_api_gateway_method.post.id,
+      aws_api_gateway_method.get.id,
+      aws_api_gateway_method.delete.id,
       aws_api_gateway_integration.lambda.id,
+      aws_api_gateway_integration.get_lambda.id,
+      aws_api_gateway_integration.delete_lambda.id,
     ]))
   }
 
