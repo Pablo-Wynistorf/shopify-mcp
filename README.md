@@ -11,6 +11,92 @@ A serverless [Model Context Protocol](https://modelcontextprotocol.io/) server f
 - CORS enabled for browser-based clients
 - Rate limiting and daily quotas via API Gateway usage plan
 
+---
+
+## Shopify App Setup
+
+### 1. Create the App in the Shopify Partners Dashboard
+
+1. Go to [partners.shopify.com](https://partners.shopify.com) and log in (or create a free Partners account).
+2. In the left sidebar, click **Apps** → **Create app**.
+3. Choose **Create app manually**.
+4. Enter a name (e.g. `Shopify MCP Server`) and click **Create**.
+
+### 2. Get Client ID and Client Secret
+
+1. After creating the app, you'll land on the **App overview** page.
+2. In the left sidebar, click **Client credentials**.
+3. Copy the **Client ID** and **Client secret** — you'll need both for the MCP configuration.
+
+### 3. Configure Access Scopes
+
+This MCP server uses the **client credentials** OAuth flow (headless, no user interaction). You need to configure the scopes your app requests.
+
+1. In your app settings, go to **Configuration**.
+2. Under **Access scopes**, click **Configure** next to "Admin API integration".
+3. Add the following scopes:
+
+| Scope | Reason |
+|-------|--------|
+| `read_products` | List and read products, variants, options |
+| `write_products` | Create, update, delete products and variants |
+| `read_orders` | List and read orders, transactions, refunds |
+| `write_orders` | Update orders, cancel, close/reopen, mark as paid |
+| `read_customers` | List and read customers |
+| `write_customers` | Create, update, delete, merge customers |
+| `read_inventory` | Read inventory items and levels |
+| `write_inventory` | Set inventory quantities |
+| `read_fulfillments` | Read fulfillment orders |
+| `write_fulfillments` | Create fulfillments |
+| `read_draft_orders` | Read draft orders |
+| `write_draft_orders` | Create and complete draft orders |
+| `read_locales` | Read shop locales |
+| `read_shipping` | Read shipping/locations info |
+| `read_price_rules` | Read price lists |
+| `read_publications` | Read collections and publications |
+| `read_markets` | Read markets configuration |
+
+4. Click **Save**.
+
+### 4. Apply for Protected Customer Data Access (if needed)
+
+Some scopes involve sensitive customer data (names, emails, addresses, phone numbers). Shopify requires apps to apply for access to protected customer data.
+
+1. In your app settings, go to **API access** → **Protected customer data access**.
+2. Click **Request access**.
+3. You'll need to provide:
+   - A reason for accessing the data (e.g. "Server-side order management and customer support via MCP protocol").
+   - Which specific data fields you need: **Name**, **Email**, **Phone**, **Address**.
+   - How you store and protect the data.
+   - Your privacy policy URL.
+4. Submit the request. Shopify typically reviews within a few business days.
+5. Until approved, API calls that return protected customer fields will have those fields redacted.
+
+> **Note:** If you only use the product/inventory/collection tools and don't need customer PII, you can skip this step.
+
+### 5. Enable the Client Credentials Grant
+
+The client credentials flow must be explicitly enabled for your app:
+
+1. In your app settings, go to **Configuration**.
+2. Under **Access scopes**, make sure "Client credentials" is selected as the grant type under the Admin API integration.
+3. This allows the app to authenticate without a merchant going through an OAuth redirect.
+
+### 6. Install the App on Your Store
+
+1. In the Partners Dashboard, go to your app → **Test your app**.
+2. Select the store you want to install on (must be a development store or a store where you have staff access).
+3. Click **Install app** and approve the requested scopes.
+4. Alternatively, you can generate an install link:
+   ```
+   https://{your-store}.myshopify.com/admin/oauth/install?client_id={YOUR_CLIENT_ID}
+   ```
+   Open this URL while logged into the store admin and approve the installation.
+
+After installation, the client credentials flow will work for that store.
+
+---
+
 ## Authentication
 
 ### Layer 1: API Gateway API Key
@@ -32,7 +118,7 @@ These are used to obtain a Shopify access token via the `client_credentials` OAu
 - [Node.js](https://nodejs.org/) >= 20.x
 - [Terraform](https://www.terraform.io/) >= 1.5
 - AWS CLI configured with appropriate credentials
-- A [Shopify custom app](https://shopify.dev/docs/apps/build/authentication/client-credentials) with client credentials grant enabled
+- A Shopify Partners account with a custom app (see [Shopify App Setup](#shopify-app-setup) above)
 
 ## Deploy
 
@@ -64,9 +150,14 @@ The API key value is marked as sensitive in Terraform outputs. To view it:
 terraform output api_key_value
 ```
 
+---
+
 ## MCP Client Configuration
 
-Copy `mcp.json.example` and fill in your values:
+### Kiro
+
+
+Copy `mcp.json.example` to `.kiro/settings/mcp.json` (workspace-level) or `~/.kiro/settings/mcp.json` (user-level) and fill in your values:
 
 ```json
 {
@@ -86,7 +177,22 @@ Copy `mcp.json.example` and fill in your values:
 }
 ```
 
+Replace:
+- `your-api-id.execute-api.eu-central-1.amazonaws.com` with your actual API Gateway endpoint (from `terraform output api_endpoint`)
+- `your-api-gateway-key` with the key from `terraform output api_key_value`
+- `your-shopify-client-id` and `your-shopify-client-secret` with the values from your Shopify app (see [step 2](#2-get-client-id-and-client-secret))
+- `your-store.myshopify.com` with your store's myshopify.com domain
+
 If using a custom domain, replace the URL with `https://your-custom-domain.com/mcp`.
+
+### Other MCP Clients
+
+Any MCP client that supports the `streamable-http` transport can connect. The server expects:
+- `POST` requests with `Accept: text/event-stream` header for SSE responses
+- Shopify credentials and API key passed as HTTP headers
+- Standard JSON-RPC 2.0 message format
+
+---
 
 ## Request Format
 
@@ -182,6 +288,7 @@ Tools are auto-loaded from the `tools/` directory at startup.
 | Tool | Description |
 |------|-------------|
 | `create-fulfillment` | Create a fulfillment (mark items as shipped) with optional tracking info and customer notification |
+| `get-fulfillment-orders` | Get fulfillment orders for a given order, including status, assigned location, and line items |
 
 ### Inventory
 
