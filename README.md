@@ -192,6 +192,43 @@ Any MCP client that supports the `streamable-http` transport can connect. The se
 - Shopify credentials and API key passed as HTTP headers
 - Standard JSON-RPC 2.0 message format
 
+### Compact Mode (Token-Optimized) — Default
+
+The server exposes tools in compact mode by default, collapsing 44 tools into 6 category tools. This dramatically reduces input token usage for AI clients. To get all 44 tools individually (original behavior), add the `x-tool-mode: full` header.
+
+| Category Tool | Covers |
+|---------------|--------|
+| `shopify-products` | Products, variants, options, inventory |
+| `shopify-orders` | Orders, draft orders, fulfillments, refunds |
+| `shopify-customers` | Customers, addresses, merges |
+| `shopify-collections` | Collections |
+| `shopify-shop` | Shop info, locations, markets, price lists, metafields, tags |
+| `shopify-describe` | Returns the full inputSchema for any action on demand |
+
+Each category tool accepts `{ "action": "<action-name>", "arguments": { ... } }`. The model can call `shopify-describe` with an action name to get the full parameter schema before calling it.
+
+Example MCP config (compact mode is the default, no extra header needed):
+
+```json
+{
+  "mcpServers": {
+    "shopify-mcp": {
+      "type": "streamable-http",
+      "url": "https://your-api-id.execute-api.eu-central-1.amazonaws.com/mcp/mcp",
+      "headers": {
+        "x-api-key": "your-api-gateway-key",
+        "x-shopify-client-id": "your-shopify-client-id",
+        "x-shopify-client-secret": "your-shopify-client-secret",
+        "x-shopify-shop-domain": "your-store.myshopify.com",
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+```
+
+To use full mode (all 44 tools individually), add `"x-tool-mode": "full"` to the headers.
+
 ---
 
 ## Request Format

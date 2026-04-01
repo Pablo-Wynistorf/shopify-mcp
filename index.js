@@ -1,6 +1,7 @@
 const { getAccessToken } = require("./lib/shopifyAuth");
 const { createShopifyClient } = require("./lib/shopifyClient");
 const { tools } = require("./tools/registry");
+const { categories } = require("./tools/categories");
 const crypto = require("crypto");
 
 /**
@@ -71,11 +72,54 @@ exports.handler = async (event) => {
 
     // ── tools/list ──────────────────────────────────────────────────
     if (method === "tools/list") {
-      const toolList = Object.entries(tools).map(([name, t]) => ({
-        name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      }));
+      const compact = headers["x-tool-mode"] !== "full";
+      let toolList;
+
+      if (compact) {
+        // Compact mode: expose one tool per category + a describe helper.
+        // This reduces ~40 tool definitions down to ~6, saving thousands
+        // of input tokens on every request.
+        toolList = Object.entries(categories).map(([catName, cat]) => ({
+          name: catName,
+          description: cat.description,
+          inputSchema: {
+            type: "object",
+            properties: {
+              action: {
+                type: "string",
+                description: `The action to run. One of: ${cat.actions.join(", ")}`,
+              },
+              arguments: {
+                type: "object",
+                description: "Arguments for the action. Call shopify-describe first to see the schema.",
+              },
+            },
+            required: ["action"],
+          },
+        }));
+        // Add a describe tool so the model can discover schemas on-demand
+        toolList.push({
+          name: "shopify-describe",
+          description:
+            "Returns the full inputSchema for a specific action. " +
+            "Call this before calling a category tool if you need to know the accepted parameters.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              action: { type: "string", description: "The action name, e.g. create-product" },
+            },
+            required: ["action"],
+          },
+        });
+      } else {
+        // Full mode: expose every tool individually (original behavior)
+        toolList = Object.entries(tools).map(([name, t]) => ({
+          name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        }));
+      }
+
       const result = { jsonrpc: "2.0", id, result: { tools: toolList } };
       return wantSSE
         ? respondSSE(200, [result], sessionId)
@@ -105,17 +149,61 @@ exports.handler = async (event) => {
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
 
-      if (!toolName || !tools[toolName]) {
+      // ── shopify-describe: return schema for a specific action ─────
+      if (toolName === "shopify-describe") {
+        const actionName = toolArgs.action;
+        if (!actionName || !tools[actionName]) {
+          const err = {
+            jsonrpc: "2.0", id,
+            error: { code: -32601, message: `Unknown action: ${actionName}` },
+          };
+          return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
+        }
+        const schema = {
+          name: actionName,
+          description: tools[actionName].description,
+          inputSchema: tools[actionName].inputSchema,
+        };
+        const result = {
+          jsonrpc: "2.0", id,
+          result: { content: [{ type: "text", text: JSON.stringify(schema) }] },
+        };
+        return wantSSE
+          ? respondSSE(200, [result], sessionId)
+          : respond(200, result, sessionId);
+      }
+
+      // ── Category-based call: resolve the real action name ─────────
+      let resolvedToolName = toolName;
+      let resolvedArgs = toolArgs;
+
+      if (categories[toolName]) {
+        // Called via a category tool — the real action is in args.action
+        resolvedToolName = toolArgs.action;
+        resolvedArgs = toolArgs.arguments || {};
+        if (!resolvedToolName || !categories[toolName].actions.includes(resolvedToolName)) {
+          const err = {
+            jsonrpc: "2.0", id,
+            error: {
+              code: -32601,
+              message: `Unknown action "${resolvedToolName}" for ${toolName}. Valid: ${categories[toolName].actions.join(", ")}`,
+            },
+          };
+          return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
+        }
+      }
+
+      if (!resolvedToolName || !tools[resolvedToolName]) {
         const err = {
           jsonrpc: "2.0", id,
-          error: { code: -32601, message: `Unknown tool: ${toolName}` },
+          error: { code: -32601, message: `Unknown tool: ${resolvedToolName}` },
         };
         return wantSSE ? respondSSE(200, [err], sessionId) : respond(200, err, sessionId);
       }
 
       const accessToken = await getAccessToken(clientId, clientSecret, shopDomain);
       const client = createShopifyClient(shopDomain, accessToken);
-      const toolResult = await tools[toolName].execute(client, toolArgs);
+      const toolResult = await tools[resolvedToolName].execute(client, resolvedArgs);
 
       const result = {
         jsonrpc: "2.0", id,
@@ -145,7 +233,7 @@ exports.handler = async (event) => {
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type,x-api-key,mcp-session-id,Accept,x-shopify-client-id,x-shopify-client-secret,x-shopify-shop-domain",
+  "Access-Control-Allow-Headers": "Content-Type,x-api-key,mcp-session-id,Accept,x-shopify-client-id,x-shopify-client-secret,x-shopify-shop-domain,x-tool-mode",
   "Access-Control-Allow-Methods": "POST,GET,DELETE,OPTIONS",
   "Access-Control-Expose-Headers": "mcp-session-id",
 };
