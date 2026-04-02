@@ -56,6 +56,18 @@ const categories = {
       "get-metafield-definitions", "get-metafields", "set-metafields", "delete-metafields", "manage-tags",
     ],
   },
+  "shopify-analytics": {
+    description:
+      "Store analytics and reporting powered by ShopifyQL. Best sellers, sales trends, " +
+      "channel performance, geographic breakdowns, customer cohorts, session/traffic data, " +
+      "and custom ShopifyQL queries. Requires read_reports scope. " +
+      "Actions: get-best-sellers, get-sales-over-time, get-sales-by-channel, get-sales-by-location, " +
+      "get-customer-analytics, get-session-analytics, run-shopifyql",
+    actions: [
+      "get-best-sellers", "get-sales-over-time", "get-sales-by-channel", "get-sales-by-location",
+      "get-customer-analytics", "get-session-analytics", "run-shopifyql",
+    ],
+  },
 };
 
 module.exports = { categories };
